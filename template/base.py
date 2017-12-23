@@ -3,8 +3,11 @@ import os
 import atexit
 import json
 import time
+import logging
+import colorlog
 import paho.mqtt.client as mqtt
 from typing import List, Dict
+from config import config
 
 
 class MQTTServer(object):
@@ -20,11 +23,10 @@ class MQTTServer(object):
         """ This creates a new server listening on a user-defined set of topics
         on the MQTT broker specified in config
         """
-        self.__name = name
 
         # initialize logging system
         if not self.__class__.log:
-            self.__class__.__init_log()
+            self.__class__.__init_log(name)
 
         # connect to MQTT broker
         self.client = self.__connect()
@@ -80,15 +82,14 @@ class MQTTServer(object):
         client = mqtt.Client()
 
         # server information
-        host = config.get('server').get('host') or 'localhost'
-        port = config.get('server').get('mosquitto').get('port') or 1883
-        name = config.get('general').get('name') or 'Atlas'
-        email = config.get('general').get('email') or 'your system administrator'
+        host = config.mqtt.host or 'localhost'
+        port = config.mqtt.port or 1883
+        name = config.general.name or 'Atlas'
 
         # connect to message broker
         try:
             client.connect(host, port, 60)
-            self.log.info(f'Successfully connected to {name}')
+            self.log.info(f'Successfully connected to the {name} MQTT broker.')
         except:
             self.log.error(f'Unable to connect to {name}. Please try again later. '
                            f'If the problem persists, please contact {email}')
@@ -108,12 +109,17 @@ class MQTTServer(object):
         self.client.loop_forever()
 
     
-    def __process_message(self, client, userdata, msg) -> List:
+    def __process_message(self, client, userdata, msg):
         """ This function is called whenever a message is received.
         """
         topic = msg.topic
-        msg = json.loads(msg.payload.decode())
-        self.process_message(topic, msg)
+        try:
+            payload = json.loads(msg.payload.decode())
+            self.process_message(topic, payload)
+        except json.decoder.JSONDecodeError:
+            self.log.warning(f'Invalid Message: \'{msg.payload.decode()}\'')
+        except Exception as e:
+            self.log.error(f'An error ocurred during processing of a message {e}')
 
         
     def __handle_exit(self, *_):
@@ -135,12 +141,12 @@ class MQTTServer(object):
 
 
     @classmethod
-    def __init_log(cls) -> bool:
+    def __init_log(cls, name) -> bool:
         """ Initialize the logging system for this module and set
         a ColoredFormatter. 
         """
         # create format string for this module
-        format_str = config.logging.fmt.replace('[name]', 'TELESCOPE SERVER')
+        format_str = config.logging.fmt.replace('[name]', name.upper())
         formatter = colorlog.ColoredFormatter(format_str, datefmt=config.logging.datefmt)
 
         # create stream
